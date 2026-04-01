@@ -15,19 +15,28 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  category TEXT,
+  category_id INTEGER,
   supplier TEXT,
   location TEXT,
   purchase_price REAL,
+  purchase_unit TEXT,
   sale_price REAL,
+  sale_unit TEXT,
   current_stock INTEGER DEFAULT 0,
   min_stock_alert INTEGER DEFAULT 5,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
 CREATE TABLE IF NOT EXISTS inventory_movements (
@@ -55,5 +64,13 @@ CREATE TABLE IF NOT EXISTS alerts (
 -- Usuario admin por defecto (password en texto plano por ahora)
 INSERT OR IGNORE INTO users (username, password, role, full_name, active)
 VALUES ('admin', 'admin123', 'ADMIN', 'Administrador', 1);
+
+-- Categorías por defecto
+INSERT OR IGNORE INTO categories (name) VALUES 
+('Alimentos'),
+('Bebidas'),
+('Limpieza'),
+('Cuidado Personal'),
+('Otros');
 
 COMMIT;

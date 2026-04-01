@@ -1,5 +1,7 @@
 package com.almacen.ui.inventory;
 
+import com.almacen.events.StockEventManager;
+import com.almacen.events.StockUpdateListener;
 import com.almacen.model.InventoryMovement;
 import com.almacen.model.Product;
 import com.almacen.service.InventoryService;
@@ -14,17 +16,19 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ProductPanel extends JPanel {
+public class ProductPanel extends JPanel implements StockUpdateListener {
     private static final Logger logger = LogManager.getLogger(ProductPanel.class);
 
     private final ProductService productService;
     private final InventoryService inventoryService;
+    private final StockEventManager eventManager;
 
     private final ProductTableModel tableModel;
     private final JTable table;
@@ -34,10 +38,12 @@ public class ProductPanel extends JPanel {
     private final JButton editButton;
     private final JButton deleteButton;
     private final JButton movementsButton;
+    private final JButton refreshButton;
 
     public ProductPanel() {
         this.productService = new ProductService();
         this.inventoryService = new InventoryService();
+        this.eventManager = StockEventManager.getInstance();
 
         this.tableModel = new ProductTableModel();
         this.table = new JTable(tableModel);
@@ -70,12 +76,15 @@ public class ProductPanel extends JPanel {
         editButton = new JButton("Editar");
         deleteButton = new JButton("Eliminar");
         movementsButton = new JButton("Ver Movimientos");
+        refreshButton = new JButton("Refrescar (F5)");
+        refreshButton.setToolTipText("Refrescar lista de productos (Ctrl+R)");
 
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
         top.add(new JLabel("Buscar:"));
         top.add(searchField);
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottom.add(refreshButton);
         bottom.add(movementsButton);
         bottom.add(deleteButton);
         bottom.add(editButton);
@@ -119,8 +128,15 @@ public class ProductPanel extends JPanel {
             int row = table.getSelectedRow();
             if (row >= 0) showMovements(row);
         });
+        refreshButton.addActionListener(e -> refreshAll());
+        
+        // Configurar shortcut Ctrl+R para refrescar
+        setupRefreshShortcut();
 
         refreshAll();
+        
+        // Registrar como listener de eventos de stock
+        eventManager.addListener(this);
     }
 
     private void refreshFilter() {
@@ -137,6 +153,32 @@ public class ProductPanel extends JPanel {
         List<Product> all = productService.getAllProducts();
         tableModel.setProducts(all);
     }
+    
+    private void setupRefreshShortcut() {
+        // Configurar shortcut Ctrl+R y F5 para refrescar
+        InputMap inputMap = getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = getActionMap();
+        
+        // Ctrl+R
+        KeyStroke ctrlR = KeyStroke.getKeyStroke("ctrl R");
+        inputMap.put(ctrlR, "refresh");
+        actionMap.put("refresh", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                refreshAll();
+            }
+        });
+        
+        // F5
+        KeyStroke f5 = KeyStroke.getKeyStroke("F5");
+        inputMap.put(f5, "refreshF5");
+        actionMap.put("refreshF5", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                refreshAll();
+            }
+        });
+    }
 
     private Product getSelectedProduct(int row) {
         return tableModel.getProductAt(row);
@@ -151,6 +193,9 @@ public class ProductPanel extends JPanel {
         if (dialog.isSaved()) {
             logger.info("Product added.");
             refreshAll();
+            // Notificar que se agregó un nuevo producto (obtener ID del producto guardado)
+            // Por ahora notificamos como actualización general
+            eventManager.notifyAllProductsChanged();
         }
     }
 
@@ -186,6 +231,8 @@ public class ProductPanel extends JPanel {
         if (ok) {
             logger.warn("Product deleted id={}", p.getId());
             refreshAll();
+            // Notificar que se eliminó un producto
+            eventManager.notifyProductDeleted(p.getId());
         } else {
             JOptionPane.showMessageDialog(this, "No se pudo eliminar el producto.", "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -241,6 +288,54 @@ public class ProductPanel extends JPanel {
         sb.append("Mín alerta: ").append(p.getMinStockAlert() == null ? 0 : p.getMinStockAlert());
         sb.append("</body></html>");
         return sb.toString();
+    }
+
+    @Override
+    public void onStockUpdated(Long productId) {
+        // Refrescar la tabla para mostrar el stock actualizado
+        SwingUtilities.invokeLater(() -> {
+            if (productId != null) {
+                // Actualizar solo el producto específico si es posible
+                refreshSpecificProduct(productId);
+            } else {
+                // Refrescar toda la tabla
+                refreshAll();
+            }
+        });
+    }
+    
+    @Override
+    public void onProductAdded(Long productId) {
+        // Refrescar la tabla para mostrar el nuevo producto
+        SwingUtilities.invokeLater(this::refreshAll);
+    }
+    
+    @Override
+    public void onProductDeleted(Long productId) {
+        // Refrescar la tabla para eliminar el producto
+        SwingUtilities.invokeLater(this::refreshAll);
+    }
+    
+    private void refreshSpecificProduct(Long productId) {
+        // Buscar el producto en la tabla y actualizar solo esa fila
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            Product p = tableModel.getProductAt(i);
+            if (p != null && productId.equals(p.getId())) {
+                // Obtener datos actualizados del producto
+                Product updated = productService.getProductByCode(p.getCode());
+                if (updated != null) {
+                    // Actualizar el producto en el modelo
+                    tableModel.products.set(i, updated);
+                    tableModel.fireTableRowsUpdated(i, i);
+                }
+                break;
+            }
+        }
+    }
+    
+    // Método para limpiar el listener cuando el panel se destruye
+    public void cleanup() {
+        eventManager.removeListener(this);
     }
 
     private static String safe(String s) {
@@ -321,9 +416,9 @@ public class ProductPanel extends JPanel {
             return switch (columnIndex) {
                 case 0 -> p.getCode();
                 case 1 -> p.getName();
-                case 2 -> p.getCategory();
+                case 2 -> p.getCategoryDisplay();
                 case 3 -> stock == null ? 0 : stock;
-                case 4 -> p.getSalePrice() == null ? 0.0 : p.getSalePrice();
+                case 4 -> p.getSalePriceWithUnit();
                 case 5 -> low ? "Bajo" : "OK";
                 default -> null;
             };

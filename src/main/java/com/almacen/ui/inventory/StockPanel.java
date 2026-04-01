@@ -1,5 +1,6 @@
 package com.almacen.ui.inventory;
 
+import com.almacen.events.StockEventManager;
 import com.almacen.model.Product;
 import com.almacen.security.AuthService;
 import com.almacen.service.InventoryService;
@@ -10,6 +11,7 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ public class StockPanel extends JPanel {
     private final AuthService authService;
     private final ProductService productService;
     private final InventoryService inventoryService;
+    private final StockEventManager eventManager;
 
     private final StockTableModel tableModel;
     private final JTable table;
@@ -27,11 +30,13 @@ public class StockPanel extends JPanel {
     private final JButton removeStockButton;
     private final JButton adjustStockButton;
     private final JButton historyButton;
+    private final JButton refreshButton;
 
     public StockPanel(AuthService authService) {
         this.authService = authService;
         this.productService = new ProductService();
         this.inventoryService = new InventoryService();
+        this.eventManager = StockEventManager.getInstance();
 
         this.tableModel = new StockTableModel();
         this.table = new JTable(tableModel);
@@ -55,8 +60,11 @@ public class StockPanel extends JPanel {
         removeStockButton = new JButton("Quitar Stock");
         adjustStockButton = new JButton("Ajustar Stock");
         historyButton = new JButton("Ver Historial");
+        refreshButton = new JButton("Refrescar (F5)");
+        refreshButton.setToolTipText("Refrescar lista de productos (Ctrl+R)");
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        actions.add(refreshButton);
         actions.add(historyButton);
         actions.add(adjustStockButton);
         actions.add(removeStockButton);
@@ -70,13 +78,43 @@ public class StockPanel extends JPanel {
         removeStockButton.addActionListener(e -> openMovementDialog(StockMovementDialog.Action.REMOVE));
         adjustStockButton.addActionListener(e -> openMovementDialog(StockMovementDialog.Action.ADJUST));
         historyButton.addActionListener(e -> openHistoryPanel());
-
+        refreshButton.addActionListener(e -> refresh());
+        
+        // Configurar shortcut Ctrl+R para refrescar
+        setupRefreshShortcut();
+        
         refresh();
     }
 
     private void refresh() {
         List<Product> products = productService.getAllProducts();
         tableModel.setProducts(products);
+    }
+    
+    private void setupRefreshShortcut() {
+        // Configurar shortcut Ctrl+R y F5 para refrescar
+        InputMap inputMap = getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = getActionMap();
+        
+        // Ctrl+R
+        KeyStroke ctrlR = KeyStroke.getKeyStroke("ctrl R");
+        inputMap.put(ctrlR, "refresh");
+        actionMap.put("refresh", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                refresh();
+            }
+        });
+        
+        // F5
+        KeyStroke f5 = KeyStroke.getKeyStroke("F5");
+        inputMap.put(f5, "refreshF5");
+        actionMap.put("refreshF5", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                refresh();
+            }
+        });
     }
 
     private Product selectedProduct() {
@@ -114,6 +152,10 @@ public class StockPanel extends JPanel {
 
         if (dialog.isSaved()) {
             refresh();
+            // Notificar que el stock fue actualizado
+            if (p != null && p.getId() != null) {
+                eventManager.notifyStockUpdated(p.getId());
+            }
         }
     }
 
@@ -180,7 +222,7 @@ public class StockPanel extends JPanel {
             return switch (columnIndex) {
                 case 0 -> p.getCode();
                 case 1 -> p.getName();
-                case 2 -> p.getCategory();
+                case 2 -> p.getCategoryDisplay();
                 case 3 -> stock == null ? 0 : stock;
                 case 4 -> low ? "Bajo" : "OK";
                 default -> null;

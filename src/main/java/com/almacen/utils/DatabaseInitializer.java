@@ -39,7 +39,8 @@ public final class DatabaseInitializer {
             logger.info("Database has no tables. Creating schema...");
             runSchema();
         } else {
-            logger.info("Database already initialized.");
+            logger.info("Database already initialized. Checking for migrations...");
+            runMigrationsIfNeeded();
         }
     }
 
@@ -134,5 +135,69 @@ public final class DatabaseInitializer {
             }
         }
         return statements;
+    }
+
+    private static void runMigrationsIfNeeded() {
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement st = conn.createStatement()) {
+            
+            // Verificar si la tabla categories existe
+            boolean hasCategoriesTable = false;
+            try (ResultSet rs = st.executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='categories'")) {
+                hasCategoriesTable = rs.next();
+            }
+            
+            // Verificar si las columnas purchase_unit y sale_unit existen en products
+            boolean hasPurchaseUnit = false;
+            boolean hasSaleUnit = false;
+            boolean hasCategoryId = false;
+            
+            try (ResultSet rs = st.executeQuery("PRAGMA table_info(products)")) {
+                while (rs.next()) {
+                    String columnName = rs.getString("name");
+                    if ("purchase_unit".equals(columnName)) {
+                        hasPurchaseUnit = true;
+                    }
+                    if ("sale_unit".equals(columnName)) {
+                        hasSaleUnit = true;
+                    }
+                    if ("category_id".equals(columnName)) {
+                        hasCategoryId = true;
+                    }
+                }
+            }
+            
+            // Ejecutar migraciones necesarias
+            if (!hasCategoriesTable) {
+                logger.info("Creating categories table...");
+                st.execute("CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+                st.execute("INSERT INTO categories (name) VALUES ('Alimentos'), ('Bebidas'), ('Limpieza'), ('Cuidado Personal'), ('Otros')");
+            }
+            
+            if (!hasCategoryId) {
+                logger.info("Adding category_id column to products...");
+                st.execute("ALTER TABLE products ADD COLUMN category_id INTEGER");
+            }
+            
+            if (!hasPurchaseUnit) {
+                logger.info("Adding purchase_unit column to products...");
+                st.execute("ALTER TABLE products ADD COLUMN purchase_unit TEXT");
+            }
+            
+            if (!hasSaleUnit) {
+                logger.info("Adding sale_unit column to products...");
+                st.execute("ALTER TABLE products ADD COLUMN sale_unit TEXT");
+            }
+            
+            // Si hubo migraciones, actualizar productos existentes
+            if (!hasCategoriesTable || !hasCategoryId) {
+                logger.info("Updating existing products with category mapping...");
+                st.execute("UPDATE products SET category_id = (SELECT id FROM categories WHERE name = products.category) WHERE products.category IS NOT NULL AND category_id IS NULL");
+            }
+            
+        } catch (SQLException e) {
+            logger.error("Failed to run migrations", e);
+            throw new RuntimeException("Migration failed", e);
+        }
     }
 }

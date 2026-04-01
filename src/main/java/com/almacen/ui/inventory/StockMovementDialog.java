@@ -10,7 +10,6 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntSupplier;
 
@@ -21,6 +20,7 @@ public class StockMovementDialog extends JDialog {
 
     private final Action action;
     private final InventoryService inventoryService;
+    private final ProductService productService;
     private final IntSupplier currentUserIdSupplier;
 
     private boolean saved;
@@ -30,8 +30,6 @@ public class StockMovementDialog extends JDialog {
     private final JTextField reasonField;
     private final JButton confirmButton;
     private final JButton cancelButton;
-
-    private final List<Product> allProducts;
 
     public StockMovementDialog(
             Window parent,
@@ -47,8 +45,7 @@ public class StockMovementDialog extends JDialog {
         this.action = action;
         this.inventoryService = inventoryService;
         this.currentUserIdSupplier = currentUserIdSupplier;
-
-        this.allProducts = new ArrayList<>(productService.getAllProducts());
+        this.productService = productService;
 
         setLayout(new BorderLayout(10, 10));
 
@@ -124,7 +121,11 @@ public class StockMovementDialog extends JDialog {
     private void refreshComboItems(String keyword) {
         String k = keyword == null ? "" : keyword.trim().toLowerCase();
         productCombo.removeAllItems();
-        for (Product p : allProducts) {
+        
+        // Siempre obtener datos frescos desde la base de datos
+        List<Product> freshProducts = productService.getAllProducts();
+        
+        for (Product p : freshProducts) {
             String code = p.getCode() == null ? "" : p.getCode().toLowerCase();
             String name = p.getName() == null ? "" : p.getName().toLowerCase();
             if (k.isEmpty() || code.contains(k) || name.contains(k)) {
